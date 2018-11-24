@@ -8,13 +8,18 @@ package snowflake
  */
 
 import (
+ 	"encoding/base64"
+ 	"encoding/binary"
+	"strconv"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
+	"fmt"
 )
 
 const (
+	// Epoch is set to the twitter snowflake epoch of Nov 04 2010 01:42:54 UTC
+	// You may customize this to set a different epoch for your application.
 	twepoch        = int64(1542944160000) // 默认起始的时间戳 1542944160000 。计算时，减去这个值
 	DistrictIdBits = uint(5)              // 区域 所占用位置
 	NodeIdBits     = uint(9)              // 节点 所占位置, 2^9 = 512
@@ -22,8 +27,8 @@ const (
 
 	/*
 	 * snowflake-64bit :
-	 * 1 符号位 |  39 时间戳                                    | 5 区域 |  9 节点     | 10 （毫秒内）自增ID
-	 * 0        |  0000000 00000000 00000000 00000000 00000000  | 00000  | 000000 000  |  000000 0000
+	 * 1 符号位	|  39 时间戳										| 5 区域	| 9 节点			| 10 （毫秒内）自增ID
+	 * 0		|  0000000 00000000 00000000 00000000 00000000	| 00000	| 000000 000	| 000000 0000
 	 *
 	 * 1. 39 位时间截(毫秒级)，注意这是时间截的差值（当前时间截 - 开始时间截)。可以使用约: (1L << 39) / (1000L * 60 * 60 * 24 * 365)
 	 * 2. 9  位数据机器位，可以部署在 512 个节点
@@ -32,11 +37,13 @@ const (
 	maxNodeId     = -1 ^ (-1 << NodeIdBits)     // 节点 ID 最大范围
 	maxDistrictId = -1 ^ (-1 << DistrictIdBits) // 最大区域范围
 
-	nodeIdShift        = sequenceBits // 左移次数
-	DistrictIdShift    = sequenceBits + NodeIdBits
-	timestampLeftShift = sequenceBits + NodeIdBits + DistrictIdBits
-	sequenceMask       = -1 ^ (-1 << sequenceBits)
-	maxNextIdsNum      = 100 // 单次获取ID的最大数量
+	nodeIdShift        	= sequenceBits 	// 左移次数
+	districtIdShift		= sequenceBits + NodeIdBits
+	timestampLeftShift	= sequenceBits + NodeIdBits + DistrictIdBits
+	sequenceMask       	= -1 ^ (-1 << sequenceBits)
+	nodeIdMask			= maxNodeId << sequenceBits
+	districtMask		= maxDistrictId << districtIdShift
+	maxNextIdsNum		= 100 			// 单次获取ID的最大数量
 )
 
 type IdWorker struct {
@@ -64,7 +71,6 @@ func NewIdWorker(NodeId int64) (*IdWorker, error) {
 	}
 
 	//fmt.Printf("worker starting. timestamp left shift %d, District id bits %d, worker id bits %d, sequence bits %d, workerid %d\n", timestampLeftShift, DistrictIdBits, NodeIdBits, sequenceBits, NodeId)
-
 	return &IdWorker{
 		nodeId:        NodeId,
 		districtId:    districtId,
@@ -125,5 +131,40 @@ func (id *IdWorker) nextid() (ID, error) {
 		id.sequence = 0
 	}
 	id.lastTimestamp = timestamp
-	return ((timestamp - id.twepoch) << timestampLeftShift) | (id.districtId << DistrictIdShift) | (id.nodeId << nodeIdShift) | id.sequence, nil
+	return ID(((timestamp - id.twepoch) << timestampLeftShift) | (id.districtId << districtIdShift) | (id.nodeId << nodeIdShift) | id.sequence), nil
 }
+
+func (f ID) Time() int64 {
+	return ((int64(f) >> timestampLeftShift) + twepoch) / 1e3
+}
+
+func (f ID) NodeId() int64 {
+	return int64(f) & nodeIdMask >> nodeIdShift
+}
+
+func (f ID) DistrictId() int64 {
+	return int64(f) & districtMask >> districtIdShift
+}
+
+func (f ID) Int64() int64 {
+	return int64(f)
+}
+
+func (f ID) String() string {
+	return strconv.FormatInt(int64(f), 10)
+}
+
+func (f ID) Bytes() []byte {
+	return []byte(f.String())
+}
+
+func (f ID) IntBytes() [8]byte {
+	var b [8]byte
+	binary.BigEndian.PutUint64(b[:], uint64(f))
+	return b
+}
+
+func (f ID) Base64() string {
+	return base64.StdEncoding.EncodeToString(f.Bytes())
+}
+
