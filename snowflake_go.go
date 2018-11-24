@@ -48,6 +48,8 @@ type IdWorker struct {
 	districtId    int64 // 区域 ID
 }
 
+type ID int64
+
 // NewIdWorker new a snowflake id generator object.
 func NewIdWorker(NodeId int64) (*IdWorker, error) {
 	var districtId int64
@@ -88,19 +90,19 @@ func tilNextMillis(lastTimestamp int64) int64 {
 }
 
 // NextId get a snowflake id.
-func (id *IdWorker) NextId() (int64, error) {
+func (id *IdWorker) NextId() (ID, error) {
 	id.Lock()
 	defer id.Unlock()
 	return id.nextid()
 }
 
 // NextIds get snowflake ids.
-func (id *IdWorker) NextIds(num int) ([]int64, error) {
+func (id *IdWorker) NextIds(num int) ([]ID, error) {
 	if num > maxNextIdsNum || num < 0 {
 		//fmt.Printf("NextIds num can't be greater than %d or less than 0\n", maxNextIdsNum)
 		return nil, errors.New(fmt.Sprintf("NextIds num: %d error", num))
 	}
-	ids := make([]int64, num)
+	ids := make([]ID, num)
 	id.Lock()
 	defer id.Unlock()
 	for i := 0; i < num; i++ {
@@ -109,7 +111,7 @@ func (id *IdWorker) NextIds(num int) ([]int64, error) {
 	return ids, nil
 }
 
-func (id *IdWorker) nextid() (int64, error) {
+func (id *IdWorker) nextid() (ID, error) {
 	timestamp := timeGen()
 	if timestamp < id.lastTimestamp {
 		return 0, errors.New(fmt.Sprintf("Clock moved backwards.  Refusing to generate id for %d milliseconds", id.lastTimestamp-timestamp))
